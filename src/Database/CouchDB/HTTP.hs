@@ -91,7 +91,6 @@ reopenConnection = CouchMonad $ \conn -> do
 
 makeHeaders bodyLen =
   [ Header HdrContentType "application/json"
-  , Header HdrContentEncoding "UTF-8"
   , Header HdrConnection "keep-alive"
   , Header HdrContentLength (show bodyLen)
   ]
