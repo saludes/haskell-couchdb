@@ -84,9 +84,9 @@ instance JSON Age where
 
 
 testCreate = TestCase $ assertDBEqual "create/drop database" True $ do
-  dropDB "test1"
-  createDB "test1"
-  dropDB "test1" -- returns True since the database exists.
+  dropDB "haskellcouchdbtest"
+  createDB "haskellcouchdbtest"
+  dropDB "haskellcouchdbtest" -- returns True since the database exists.
 
 people = [ Age "Arjun" 18, Age "Alex" 17 ]
 
