@@ -23,6 +23,7 @@ import Network.TCP
 import Network.HTTP
 import Network.URI
 import Control.Exception (bracket)
+import Control.Monad (liftM)
 import Control.Monad.Trans (MonadIO (..))
 import Data.Maybe (fromJust)
 import qualified Data.ByteString as BS (ByteString, length)
@@ -48,7 +49,12 @@ data CouchConn = CouchConn
 data CouchMonad a = CouchMonad (CouchConn -> IO (a,CouchConn))
 
 instance Applicative CouchMonad where
+  pure = return
+  (<*>) = ap
+
 instance Functor CouchMonad where
+  fmap = liftM
+
 instance Monad CouchMonad where
 
   return a = CouchMonad $ \conn -> return (a,conn)
