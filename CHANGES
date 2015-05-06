@@ -1,3 +1,10 @@
+1.2.2 (2015/5/6)
+
+* Change of maintainer
+* Fix Functor/Applicative instances
+* Remove incorrect Content-Encoding header, needed for recent CouchDBs (#17 in old repo)
+* Fix tests
+
 1.2.1 (2015/4/25)
 
 * GHC 7.10 compatibility
