@@ -1,5 +1,5 @@
 -- |Interface to CouchDB.
-module Database.CouchDB 
+module Database.CouchDB
   ( -- * Initialization
     CouchMonad
   , runCouchDB
@@ -7,10 +7,10 @@ module Database.CouchDB
   , runCouchDBURI
    -- * Explicit Connections
   , CouchConn()
-  , runCouchDBWith  
+  , runCouchDBWith
   , createCouchConn
   , createCouchConnFromURI
-  , closeCouchConn  
+  , closeCouchConn
   -- * Databases
   , DB
   , db
@@ -48,7 +48,8 @@ import Database.CouchDB.HTTP
 import Control.Monad
 import Control.Monad.Trans (liftIO)
 import Data.Maybe (fromJust,mapMaybe,maybeToList)
-import Text.JSON
+import Data.Aeson
+import qualified Data.Text as T
 import Data.List (elem)
 import Data.Maybe (mapMaybe)
 
@@ -62,27 +63,28 @@ data DB = DB String
 instance Show DB where
   show (DB s) = s
 
-instance JSON DB where
-  readJSON val = do
-    s <- readJSON val
+instance FromJSON DB where
+  parseJSON val = do
+    s <- parseJSON val
     case isDBString s of
       False -> fail "readJSON: not a valid database name"
       True -> return (DB s)
 
-  showJSON (DB s) = showJSON s
+instance ToJSON DB where
+  toJSON (DB s) = toJSON s
 
-isDBFirstChar ch = (ch >= 'a' && ch <= 'z') 
+isDBFirstChar ch = (ch >= 'a' && ch <= 'z')
 
-isDBOtherChar ch = (ch >= 'a' && ch <= 'z') 
+isDBOtherChar ch = (ch >= 'a' && ch <= 'z')
     || (ch >= '0' && ch <= '9') || ch `elem` "_$()+-/"
 
 -- Pretty much anything is accepted in document IDs, but avoid the
 -- initial '_' as it is reserved. It is likely possible to accept
 -- more, but this includes at least the auto-generated IDs.
-isFirstDocChar ch = (ch >= 'A' && ch <='Z') || (ch >= 'a' && ch <= 'z') 
+isFirstDocChar ch = (ch >= 'A' && ch <='Z') || (ch >= 'a' && ch <= 'z')
   || (ch >= '0' && ch <= '9') || ch `elem` "-@."
 
-isDocChar ch = (ch >= 'A' && ch <='Z') || (ch >= 'a' && ch <= 'z') 
+isDocChar ch = (ch >= 'A' && ch <='Z') || (ch >= 'a' && ch <= 'z')
   || (ch >= '0' && ch <= '9') || ch `elem` "-@._"
 
 isDBString :: String -> Bool
@@ -98,33 +100,34 @@ db dbName =  case isDBString dbName of
   False -> error $ "db :  invalid dbName (" ++ dbName ++ ")"
 
 -- |Document revision number.
-data Rev = Rev { unRev :: JSString } deriving (Eq,Ord)
+data Rev = Rev { unRev :: String } deriving (Eq,Ord)
 
 instance Show Rev where
-  show (Rev s) = fromJSString s
+  show (Rev s) = show (String$ T.pack s)
 
 -- |Document name
-data Doc = Doc { unDoc :: JSString } deriving (Eq,Ord)
+data Doc = Doc { unDoc :: String } deriving (Eq,Ord)
 
 instance Show Doc where
-  show (Doc s) = fromJSString s
+  show (Doc s) = show (String $ T.pack s)
 
-instance JSON Doc where
-  readJSON (JSString s) | isDocString (fromJSString s) = return (Doc s)
-  readJSON _ = fail "readJSON: not a valid document name"
+instance FromJSON Doc where
+  parseJSON v@(String s) | isDocString (T.unpack s) = parseJSON v >>= return . Doc
+  parseJSON _ = mzero
 
-  showJSON (Doc s) = showJSON s
+instance ToJSON Doc where
+  toJSON (Doc s) = toJSON s
 
 instance Read Doc where
   readsPrec _ str = maybeToList (parseFirst str) where
     parseFirst "" = Nothing
-    parseFirst (ch:rest) 
+    parseFirst (ch:rest)
       | isFirstDocChar ch =
           let (chs',rest') = parseRest rest
-            in Just (Doc $ toJSString $ ch:chs',rest)
+            in Just (Doc $ ch:chs',rest)
       | otherwise = Nothing
     parseRest "" = ("","")
-    parseRest (ch:rest) 
+    parseRest (ch:rest)
       | isDocChar ch =
           let (chs',rest') = parseRest rest
             in (ch:chs',rest')
@@ -133,13 +136,13 @@ instance Read Doc where
 
 -- |Returns a Rev
 rev :: String -> Rev
-rev = Rev . toJSString          
+rev = Rev
 
 -- |Returns a safe document name.  Signals an error if the name is
 -- invalid.
 doc :: String -> Doc
 doc docName = case isDocString docName of
-  True -> Doc (toJSString docName)
+  True -> Doc docName
   False -> error $ "doc : invalid docName (" ++ docName ++ ")"
 
 isDocString :: String -> Bool
@@ -149,7 +152,7 @@ isDocString (first:rest) = isFirstDocChar first && and (map isDocChar rest)
 
 
 -- |Creates a new database.  Throws an exception if the database already
--- exists. 
+-- exists.
 createDB :: String -> CouchMonad ()
 createDB = U.createDB
 
@@ -158,9 +161,9 @@ dropDB = U.dropDB
 
 getAllDBs :: CouchMonad [DB]
 getAllDBs = U.getAllDBs
-  >>= \dbs -> return [db $ fromJSString s | s <- dbs]
+  >>= \dbs -> return [db s | s <- dbs]
 
-newNamedDoc :: (JSON a)
+newNamedDoc :: ToJSON a
             => DB -- ^database name
             -> Doc -- ^document name
             -> a -- ^document body
@@ -172,18 +175,18 @@ newNamedDoc dbName docName body = do
     Left s -> return (Left s)
     Right rev -> return (Right $ Rev rev)
 
-updateDoc :: (JSON a)
+updateDoc :: (ToJSON a)
           => DB -- ^database
           -> (Doc,Rev) -- ^document and revision
           -> a -- ^ new value
-          -> CouchMonad (Maybe (Doc,Rev)) 
+          -> CouchMonad (Maybe (Doc,Rev))
 updateDoc db (doc,rev) val = do
   r <- U.updateDoc (show db) (unDoc doc, unRev rev) val
   case r of
     Nothing -> return Nothing
     Just (_,rev) -> return $ Just (doc,Rev rev)
 
-bulkUpdateDocs :: (JSON a)
+bulkUpdateDocs :: (ToJSON a)
                => DB -- ^database
                -> [a] -- ^ new docs
                -> CouchMonad (Maybe [Either String (Doc, Rev)])
@@ -195,7 +198,7 @@ bulkUpdateDocs db docs = do
                Just $
                map (\e ->
                      case e of
-                       Left err -> Left $ fromJSString err
+                       Left err -> Left err -- $ String err
                        Right (doc, rev) -> Right (Doc doc, Rev rev)
                    ) es
 
@@ -212,18 +215,18 @@ deleteDoc :: DB  -- ^database
           -> CouchMonad Bool
 deleteDoc db (doc,rev) = U.deleteDoc (show db) (unDoc doc,unRev rev)
 
-newDoc :: (JSON a)
+newDoc :: ToJSON a
        => DB -- ^database name
       -> a       -- ^document body
       -> CouchMonad (Doc,Rev) -- ^ id and rev of new document
 newDoc db body = do
   (doc,rev) <- U.newDoc (show db) body
   return (Doc doc,Rev rev)
-    
-getDoc :: (JSON a)
+
+getDoc :: FromJSON a
        => DB -- ^database name
        -> Doc -- ^document name
-       -> CouchMonad (Maybe (Doc,Rev,a)) -- ^'Nothing' if the 
+       -> CouchMonad (Maybe (Doc,Rev,a)) -- ^'Nothing' if the
                                          -- doc does not exist
 getDoc db doc = do
   r <- U.getDoc (show db) (show doc)
@@ -232,9 +235,9 @@ getDoc db doc = do
     Just (_,rev,val) -> return $ Just (doc,Rev rev,val)
 
 
-getAllDocs :: JSON a
+getAllDocs :: (FromJSON a, ToJSON a)
            => DB
-          -> [(String, JSValue)] -- ^query parameters
+          -> [(String, Value)] -- ^query parameters
           -> CouchMonad [(Doc, a)]
 getAllDocs db args = do
   rows <- U.getAllDocs (show db) args
@@ -246,7 +249,7 @@ getAllDocs db args = do
 -- and may fail later if the response from the server is malformed.
 getDocPrim :: DB -- ^database name
            -> Doc -- ^document name
-           -> CouchMonad (Maybe (Doc,Rev,[(String,JSValue)]))
+           -> CouchMonad (Maybe (Doc,Rev,[(String,Value)]))
            -- ^'Nothing' if the document does not exist.
 getDocPrim db doc = do
   r <- U.getDocPrim (show db) (show doc)
@@ -257,7 +260,7 @@ getDocPrim db doc = do
 getDocRaw :: DB -> Doc -> CouchMonad (Maybe String)
 getDocRaw db doc =  U.getDocRaw (show db) (show doc)
 
-getAndUpdateDoc :: (JSON a)
+getAndUpdateDoc :: (FromJSON a, ToJSON a)
                 => DB -- ^database
                 -> Doc -- ^document name
                 -> (a -> IO a) -- ^update function
@@ -268,7 +271,7 @@ getAndUpdateDoc db docId fn = do
   r <- U.getAndUpdateDoc (show db) (show docId) fn
   case r of
     Nothing -> return Nothing
-    Just rev -> return $ Just (Rev $ toJSString rev)
+    Just rev -> return $ Just (Rev  rev)
 
 getAllDocIds ::DB -- ^database name
              -> CouchMonad [Doc]
@@ -287,11 +290,11 @@ newView :: String -- ^database name
         -> CouchMonad ()
 newView = U.newView
 
-queryView :: (JSON a)
+queryView :: (FromJSON a, ToJSON a)
           => DB  -- ^database
           -> Doc  -- ^design
           -> Doc  -- ^view
-          -> [(String, JSValue)] -- ^query parameters
+          -> [(String, Value)] -- ^query parameters
           -- |Returns a list of rows.  Each row is a key, value pair.
           -> CouchMonad [(Doc, a)]
 queryView db viewSet view args = do
@@ -303,8 +306,8 @@ queryView db viewSet view args = do
 queryViewKeys :: DB  -- ^database
             -> Doc  -- ^design
             -> Doc  -- ^view
-            -> [(String, JSValue)] -- ^query parameters
+            -> [(String, Value)] -- ^query parameters
             -> CouchMonad [Doc]
 queryViewKeys db viewSet view args = do
   rows <- U.queryViewKeys (show db) (show viewSet) (show view) args
-  return $ map (Doc . toJSString) rows
+  return $ map Doc rows -- (Doc . String . T.pack) rows

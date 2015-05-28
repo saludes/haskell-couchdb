@@ -1,21 +1,27 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import Control.Monad.Trans (liftIO)
 import Control.Exception (SomeException, catch, finally)
+import Control.Applicative ((<$>), (<*>))
 import Test.HUnit
 import Database.CouchDB
 import Database.CouchDB.JSON
-import Text.JSON
+import Data.Aeson
 import System.Exit
+import qualified Data.Text as T
 import Control.Monad
 
 -- ----------------------------------------------------------------------------
 -- Helper functions
 --
 
+runCouchDB2 :: CouchMonad a -> IO a
+runCouchDB2 = runCouchDB "192.168.99.100" 32785
+
 assertDBEqual :: (Eq a, Show a) => String -> a -> CouchMonad a -> Assertion
 assertDBEqual msg v m = do
-  v' <- runCouchDB' m
+  v' <- runCouchDB2 m
   assertEqual msg v' v
 
 instance Assertable (Either String a) where
@@ -37,17 +43,17 @@ assertJust Nothing = do
   fail "assertion failed"
 
 testWithDB :: String -> (DB -> CouchMonad Bool) -> Test
-testWithDB testDescription testCase = 
+testWithDB testDescription testCase =
   TestLabel testDescription $ TestCase $ do
-    let action = runCouchDB' $ do
+    let action = runCouchDB2 $ do
           createDB "haskellcouchdbtest"
           result <- testCase (db "haskellcouchdbtest")
           liftIO $ assertBool testDescription result
-    let teardown = runCouchDB' (dropDB "haskellcouchdbtest") 
+    let teardown = runCouchDB2 (dropDB "haskellcouchdbtest")
     let failure :: SomeException -> Assertion
         failure _ = assertFailure (testDescription ++ "; exception signalled")
     action `catch` failure `finally` teardown
- 
+
 main = do
   putStrLn "Running CouchDB test suite..."
   results <- runTestTT allTests
@@ -65,18 +71,15 @@ data Age = Age
   , ageValue :: Int
   } deriving (Eq,Show)
 
-instance JSON Age where
+instance ToJSON Age where
+  toJSON (Age name val) =
+    object ["name" .= name, "age" .=  val]
 
-  showJSON (Age name val) = JSObject $ toJSObject
-    [ ("name", showJSON name)
-    , ("age", showJSON val)
-    ]
-
-  readJSON val = do
-    obj <- jsonObject val
-    name <- jsonField "name" obj
-    age <- jsonField "age" obj
-    return (Age name age)
+instance FromJSON Age where
+  parseJSON (Object v) = Age <$>
+    v .:  "name" <*>
+    v .:  "age"
+  parseJSON _          = mzero
 
 -- ----------------------------------------------------------------------------
 -- Test cases
@@ -94,7 +97,7 @@ testNamedDocs = testWithDB "add named documents" $ \mydb -> do
   newNamedDoc mydb (doc "arjun") (people !! 0)
   newNamedDoc mydb (doc "alex") (people !! 1)
   Just (_,_,v1) <- getDoc mydb (doc "arjun")
-  Just (_,_,v2) <- getDoc mydb (doc "alex") 
+  Just (_,_,v2) <- getDoc mydb (doc "alex")
   return $ (v1 == people !! 0) && (v2 == people !! 1)
 
 testUTF8 = testWithDB "test UTF8 characters" $ \db -> do
@@ -102,6 +105,5 @@ testUTF8 = testWithDB "test UTF8 characters" $ \db -> do
   Just (_, _, d) <- getDoc db (doc "d0")
   return (ageName d == "äöüß")
 
-  
-allTests = TestList [ testCreate, testNamedDocs, testUTF8 ]
 
+allTests = TestList [ testCreate, testNamedDocs, testUTF8 ]

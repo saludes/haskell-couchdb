@@ -29,7 +29,8 @@ Test-Suite test-couchdb
   Type: exitcode-stdio-1.0
   Main-Is: Tests.hs
   Build-Depends:
-    base >= 4 && < 5, mtl, containers, HTTP>=4000.0.4, json>=0.4.3, utf8-string >= 0.3.6 && <= 1.1, HUnit, bytestring
+    text>=1.2,  scientific>=0.3.3, unordered-containers>=0.2.5, vector>=0.10,
+    base >= 4 && < 5, mtl, containers, HTTP>=4000.0.4, aeson>=0.7, utf8-string >= 0.3.6 && <= 1.1, HUnit, bytestring
   if flag(network-uri)
     build-depends: network >= 2.6, network-uri >= 2.6
   else
@@ -38,18 +39,21 @@ Test-Suite test-couchdb
     FlexibleInstances
   ghc-options:
     -fwarn-incomplete-patterns
- 
+
 Library
   Hs-Source-Dirs: src
   Build-Depends:
-    base >= 4 && < 5, mtl, containers, network, network-uri, HTTP>=4000.0.4, json>=0.4.3, utf8-string >= 0.3.6 && <= 1.1, bytestring
+    vector>=0.10,
+    unordered-containers>=0.2.5,
+    text>=1.2, scientific>=0.3.3,
+    base >= 4 && < 5, mtl, containers, network, network-uri, HTTP>=4000.0.4, aeson>=0.7, utf8-string >= 0.3.6 && <= 1.1, bytestring
   if flag(network-uri)
     build-depends: network >= 2.6, network-uri >= 2.6
   else
     build-depends: network < 2.6, network-uri < 2.6
   ghc-options:
     -fwarn-incomplete-patterns
-  Extensions:     
+  Extensions:
   Exposed-Modules:
     Database.CouchDB Database.CouchDB.JSON
   Other-Modules:
